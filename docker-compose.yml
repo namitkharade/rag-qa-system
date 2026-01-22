@@ -12,6 +12,12 @@ services:
       - ANONYMIZED_TELEMETRY=FALSE
     networks:
       - hybrid-rag-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   # Redis - Cache for ephemeral drawing data (1 hour TTL)
@@ -47,12 +53,34 @@ services:
       - AGENT_HOST=agent
       - AGENT_PORT=8001
     depends_on:
-      - chromadb
-      - redis
-      - agent
+      chromadb:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - hybrid-rag-network
     restart: unless-stopped
+
+  # PDF Ingestion - One-time initialization service
+  # Runs once to ingest PDFs into ChromaDB before agent starts
+  pdf-ingest:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile.ingest
+    image: hybrid-rag-ingest:latest
+    container_name: hybrid-rag-ingest
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    networks:
+      - hybrid-rag-network
+    volumes:
+      - ./pdfs:/pdfs
+    restart: "no"  # Run once only
 
   # LangGraph Agent - Compliance reasoning and RAG
   agent:
@@ -70,16 +98,17 @@ services:
       - LANGCHAIN_PROJECT=hybrid-rag
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
+      - ANONYMIZED_TELEMETRY=FALSE
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
     depends_on:
-      - chromadb
-      - redis
+      chromadb:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - hybrid-rag-network
-    volumes:
-      - ./pdfs:/pdfs
     restart: unless-stopped
 
   # Frontend - React + Tailwind + TypeScript
@@ -92,8 +121,8 @@ services:
     ports:
       - "3000:80"
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
-      - REACT_APP_BACKEND_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:8000
+      - VITE_BACKEND_URL=http://localhost:8000
     depends_on:
       - backend
     networks:
