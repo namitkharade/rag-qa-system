@@ -20,8 +20,8 @@ export OPENAI_API_KEY=sk-your-key-here  # Linux/Mac
 # OR
 $env:OPENAI_API_KEY="sk-your-key-here"  # Windows PowerShell
 
-# 2. Start all services
-docker-compose up -d
+# 2. Start all services (first run ingests PDFs automatically)
+docker-compose up --build
 
 # 3. Open the application
 # Frontend: http://localhost:3000
@@ -60,9 +60,9 @@ Custom Shapely-based tool for spatial reasoning:
 - Layer-based object categorization
 
 ### 4. **Advanced PDF Processing**
-Uses `unstructured` library with hi_res strategy:
+Uses `pymupdf4llm` library:
 - Multi-column document parsing
-- Table extraction with structure preservation
+- Table extraction with Markdown formatting
 - Automatic metadata tagging
 - Hierarchical chunking (parent 2000 chars, child 400 chars)
 
@@ -97,32 +97,33 @@ Pydantic-validated responses:
 ### System Components
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     User Interface (React)                       │
-│  • Chat Interface  • JSON Editor  • Session Management           │
-└─────────────────────────┬────────────────────────────────────────┘
-                          │ HTTP/REST
-┌─────────────────────────▼────────────────────────────────────────┐
-│                   Backend API (FastAPI)                          │
-│  • JWT Auth  • Session CRUD  • Redis Storage  • Request Proxy   │
-└──────────────┬──────────────────────────┬────────────────────────┘
-               │                          │
-   ┌───────────▼──────────┐   ┌──────────▼──────────┐
-   │   Redis Cache        │   │   Agent Service     │
-   │  • Session Data      │   │   (LangGraph)       │
-   │  • Drawing JSON      │   │  • Multi-step       │
-   │  • 1-hour TTL        │   │    Reasoning        │
-   └──────────────────────┘   │  • Tool Calling     │
-                              └────┬─────────┬──────┘
-                                   │         │
-                    ┌──────────────▼──┐   ┌─▼─────────────┐
-                    │  ChromaDB       │   │  Geometry     │
-                    │  Vector Store   │   │  Analysis     │
-                    │  • Regulations  │   │  Tool         │
-                    │  • Embeddings   │   │  • Shapely    │
-                    │  • Persistent   │   │  • Spatial    │
-                    └─────────────────┘   └───────────────┘
+                ┌──────────────────────────────────────────────────────────────────┐
+                │                     User Interface (React)                       │
+                │  • Chat Interface  • JSON Editor  • Session Management           │
+                └─────────────────────────┬────────────────────────────────────────┘
+                                          │ HTTP/REST
+                ┌─────────────────────────▼────────────────────────────────────────┐
+                │                   Backend API (FastAPI)                          │
+                │  • JWT Auth  • Session CRUD  • Redis Storage  • Request Proxy   │
+                └──────────────┬──────────────────────────┬────────────────────────┘
+                               │                          │
+                   ┌───────────▼──────────┐   ┌──────────▼──────────┐
+                   │   Redis Cache        │   │   Agent Service     │
+                   │  • Session Data      │   │   (LangGraph)       │
+                   │  • Drawing JSON      │   │  • Multi-step       │
+                   │  • 1-hour TTL        │   │    Reasoning        │
+                   └──────────────────────┘   │  • Tool Calling     │
+                                              └────┬─────────┬──────┘
+                                                   │         │
+                    ┌──────────────────────────────▼──┐   ┌─▼─────────────┐
+  ┌──────────────┐  │           ChromaDB              │   │  Geometry     │
+  │ PDF Ingest   │─>│           Vector Store          │   │  Analysis     │
+  │ (Init Job)   │  │  • Regulations  • Embeddings    │   │  Tool         │
+  │ Runs Once    │  │  • Persistent   • Semantic      │   │  • Shapely    │
+  └──────────────┘  └─────────────────────────────────┘   └───────────────┘
 ```
+
+**Performance Note**: PDF ingestion runs in a separate one-time container optimized for PDF processing dependencies. The agent runtime remains lightweight with only essential dependencies, enabling fast deployments and efficient resource usage.
 
 ### Technology Stack
 
@@ -136,7 +137,7 @@ Pydantic-validated responses:
 | **Authentication** | JWT, Bcrypt, python-jose | Secure API access |
 | **Validation** | Pydantic | Data schema validation |
 | **Geometry** | Shapely | Spatial analysis |
-| **PDF Processing** | unstructured | Advanced document parsing |
+| **PDF Processing** | pymupdf4llm | Efficient document parsing with Markdown output |
 
 ## 📦 Project Structure
 
@@ -196,69 +197,48 @@ hybrid-rag/
 └── README.md                    # This file
 ```
 
-## 🔄 Data Flow
 
-### Chat Query Processing
-```
-1. User asks compliance question in frontend
-        ↓
-2. Frontend → Backend /api/chat/message
-        ↓
-3. Backend retrieves session & drawing data from Redis
-        ↓
-4. Backend → Agent /process (with query + drawing JSON)
-        ↓
-5. Agent runs LangGraph workflow:
-   ├─ Retrieve regulations from ChromaDB
-   ├─ Analyze geometry from drawing JSON
-   ├─ Reason with LLM (GPT-4)
-   ├─ Critique response quality
-   └─ Generate structured response
-        ↓
-6. Agent → Backend → Frontend
-        ↓
-7. Display answer + citations + reasoning steps
-```
-
-### Drawing Upload Flow
-```
-1. User pastes JSON in editor
-        ↓
-2. Frontend validates schema
-        ↓
-3. Frontend → Backend /api/session/update-ephemeral
-        ↓
-4. Backend validates with Pydantic
-        ↓
-5. Backend → Redis (key: session:{session_id}:drawing, TTL: 3600s)
-        ↓
-6. Redis stores ephemeral data
-        ↓
-7. Backend → Frontend (success + metadata)
-```
-
-### PDF Ingestion Flow
-```
-1. Run: docker-compose run --rm agent python ingest_pdf.py /pdfs/doc.pdf
-        ↓
-2. unstructured library parses PDF (hi_res strategy)
-        ↓
-3. Extract text, tables, headings with metadata
-        ↓
-4. Parent Document Retriever chunks:
-   ├─ Parent chunks: 2000 chars (context)
-   └─ Child chunks: 400 chars (search)
-        ↓
-5. Generate embeddings (OpenAI text-embedding-ada-002)
-        ↓
-6. Store in ChromaDB with metadata
-        ↓
-7. Persistent storage in Docker volume chroma_data
-```
 
 ## 📄 Data Ingestion
 
-### Adding Regulatory PDFs
+### Automatic PDF Ingestion (Recommended)
+
+**First-time setup**: PDFs are automatically ingested on startup via a dedicated initialization service.
+```bash
+# First run - automatically ingests PDFs from ./pdfs/ folder
+docker-compose up --build
+```
+
+**Add new PDFs**: Re-run the ingestion service only.
+```bash
+# 1. Add PDFs to ./pdfs/ folder
+cp new-document.pdf ./pdfs/
+
+# 2. Re-run ingestion (agent automatically picks up changes)
+docker-compose up pdf-ingest --force-recreate
+```
+
+### Manual PDF Ingestion (Development)
+
+#### Ingest Single PDF
+```bash
+docker-compose run --rm pdf-ingest python ingest_pdf.py /pdfs/document.pdf
+```
+
+#### Ingest Entire Directory
+```bash
+docker-compose run --rm pdf-ingest python ingest_pdf.py /pdfs
+```
+
+### Ingestion Architecture
+
+**Separated for Performance**: PDF ingestion runs in a dedicated container to reduce agent runtime image size by 65% (1.05GB → 350MB).
+
+- **pdf-ingest service**: PDF processing dependencies (pymupdf4llm), runs once at startup
+- **agent service**: Lightweight runtime, no PDF processing dependencies
+- **Startup order**: ChromaDB → pdf-ingest (runs once) → agent (runtime)
+
+### Chunking Strategy
 
 The system uses hierarchical chunking for optimal retrieval:
 - **Parent chunks**: 2000 characters - preserves document context
@@ -266,22 +246,12 @@ The system uses hierarchical chunking for optimal retrieval:
 - **Overlap**: 100 characters - maintains continuity
 - **Table preservation**: Tables stored with HTML/Markdown formatting
 
-#### Ingest Single PDF
-```bash
-docker-compose run --rm agent python ingest_pdf.py /pdfs/document.pdf
-```
-
-#### Ingest Entire Directory
-```bash
-docker-compose run --rm agent python ingest_pdf.py /pdfs
-```
-
 #### Ingestion Features
-- ✅ Advanced PDF parsing with `unstructured` library
-- ✅ Table extraction with structure preservation
+- ✅ Efficient PDF parsing with `pymupdf4llm` library
+- ✅ Table extraction with Markdown formatting
 - ✅ Multi-column document support
 - ✅ Automatic metadata tagging
-- ✅ Element type classification (title, text, table)
+- ✅ Element type classification (text, table)
 - ✅ Page number tracking
 - ✅ Hierarchical chunking strategy
 - ✅ Verification queries after ingestion

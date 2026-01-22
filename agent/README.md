@@ -21,11 +21,11 @@ Sophisticated reasoning pipeline with 5 nodes:
 - **Respond**: Structured output with citations and reasoning steps
 
 ### 2. **Advanced PDF Processing with Table Extraction**
-Powered by `unstructured` library with hi_res strategy:
+Powered by `pymupdf4llm` library:
 - **Complex Layouts**: Multi-column documents, nested sections
-- **Table Extraction**: Preserves structure of zoning tables and compliance matrices
-- **Format Preservation**: Tables stored as HTML/Markdown, not plain text
-- **Metadata Tagging**: Element type classification (table, text, title, heading)
+- **Table Extraction**: Preserves structure of zoning tables and compliance matrices in Markdown
+- **Format Preservation**: Tables stored in Markdown format with structure preserved
+- **Metadata Tagging**: Element type classification (table, text, heading)
 - **Hierarchical Chunking**: Parent (2000 chars) + Child (400 chars) strategy
 
 ### 3. **Intelligent Geometry Analysis Tool**
@@ -154,38 +154,33 @@ Regulatory documents contain:
 
 **Standard chunking loses this structure.**
 
-#### Solution: `unstructured` Library with `hi_res` Strategy
+#### Solution: `pymupdf4llm` Library
 
 ```python
-from unstructured.partition.pdf import partition_pdf
+import pymupdf4llm
 
-# Parse PDF with table detection
-elements = partition_pdf(
-    filename="regulations.pdf",
-    strategy="hi_res",           # High-resolution parsing
-    infer_table_structure=True,  # Extract tables
-    include_page_breaks=True
-)
+# Parse PDF with table detection and Markdown formatting
+md_text = pymupdf4llm.to_markdown("regulations.pdf")
 
-# Elements are classified
-for element in elements:
-    if element.category == "Table":
-        print(f"Found table: {element.text}")
-        print(f"Metadata: {element.metadata}")
+# Content is returned as Markdown with tables preserved
+# Tables are in Markdown format:
+# | Column 1 | Column 2 |
+# |----------|----------|
+# | Value 1  | Value 2  |
+
+print(f"Extracted content:\n{md_text}")
 ```
 
 #### Table-Specific Handling
 
-Tables are stored separately with special metadata:
+Tables are detected and stored with special metadata:
 
 ```python
 {
     'is_table': True,
     'element_type': 'table',
-    'content_format': 'html',  # or 'markdown'
-    'contains_structured_rules': True,
-    'page_number': 5,
-    'table_index': 2
+    'content_format': 'markdown',
+    'page': 5
 }
 ```
 
@@ -197,20 +192,25 @@ Tables are stored separately with special metadata:
 
 #### Ingestion Commands
 
-**Single PDF**:
+**Automatic (Recommended)**: PDFs are automatically ingested on first startup via dedicated `pdf-ingest` service.
 ```bash
-python ingest_pdf.py /path/to/document.pdf
+# First run - automatic ingestion
+docker-compose up --build
+
+# Add new PDFs and re-ingest
+docker-compose up pdf-ingest --force-recreate
 ```
 
-**Entire Directory**:
+**Manual Ingestion**:
 ```bash
-python ingest_pdf.py /pdfs
+# Single PDF
+docker-compose run --rm pdf-ingest python ingest_pdf.py /pdfs/document.pdf
+
+# Entire Directory
+docker-compose run --rm pdf-ingest python ingest_pdf.py /pdfs
 ```
 
-**With Docker**:
-```bash
-docker-compose run --rm agent python ingest_pdf.py /pdfs
-```
+**Architecture Note**: Ingestion runs in a separate one-time container to keep the agent runtime lightweight. The `pdf-ingest` service includes PDF processing dependencies (pymupdf4llm) and runs once at startup, while the agent service contains only runtime dependencies for fast deployments and minimal resource usage.
 
 **Programmatic Usage**:
 ```python
@@ -675,7 +675,7 @@ Key Python packages:
 - **chromadb**: Vector database client
 - **redis**: Redis client
 - **shapely**: Computational geometry
-- **unstructured**: Advanced PDF parsing
+- **pymupdf4llm**: Efficient PDF parsing with Markdown output
 - **fastapi**: Web framework
 - **pydantic**: Data validation
 
@@ -688,4 +688,4 @@ See [requirements.txt](requirements.txt) for complete list.
 - **LangChain Tools**: https://python.langchain.com/docs/modules/agents/tools/
 - **Shapely Documentation**: https://shapely.readthedocs.io/
 - **ChromaDB Guide**: https://docs.trychroma.com/
-- **Unstructured Library**: https://unstructured-io.github.io/unstructured/
+- **PyMuPDF4LLM Library**: https://github.com/pymupdf/RAG
