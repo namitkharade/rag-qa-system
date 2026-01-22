@@ -6,11 +6,20 @@ complex regulatory documents with nested conditions (e.g., Class A, B, C rules).
 """
 
 import os
+import sys
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List
 
-import chromadb
+# Must set this BEFORE importing chromadb to prevent default embedding function loading
+os.environ["CHROMA_DEFAULT_EMBEDDING"] = "none"
+# Disable ChromaDB telemetry to prevent warning messages
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+
+import pymupdf4llm
+# Import chromadb client directly to avoid Collection model loading default embedding
+from chromadb.api import ClientAPI
+from chromadb.config import Settings as ChromaSettings
 from config import settings
 from langchain.retrievers import ParentDocumentRetriever
 from langchain.storage import InMemoryStore
@@ -18,7 +27,6 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from unstructured.partition.pdf import partition_pdf
 
 
 class RegulatoryDocumentIngester:
@@ -54,21 +62,20 @@ class RegulatoryDocumentIngester:
         self.child_chunk_size = child_chunk_size
         self.chunk_overlap = chunk_overlap
         
-        # Initialize ChromaDB client with explicit tenant/database parameters
-        # Required for ChromaDB 0.4.24+
-        self.chroma_client = chromadb.HttpClient(
-            host=settings.chroma_host,
-            port=settings.chroma_port,
-            tenant="default_tenant",
-            database="default_database"
-        )
-        
-        # Initialize embeddings
+        # Initialize embeddings FIRST (before ChromaDB client)
         self.embeddings = OpenAIEmbeddings(
             openai_api_key=settings.openai_api_key
         )
         
-        # Initialize vector store for child chunks
+        # Initialize ChromaDB HTTP client using chromadb.HttpClient directly
+        # This avoids importing Collection model which loads default embedding function
+        import chromadb
+        self.chroma_client = chromadb.HttpClient(
+            host=settings.chroma_host,
+            port=settings.chroma_port
+        )
+        
+        # Initialize vector store for child chunks with explicit embedding function
         self.vectorstore = Chroma(
             client=self.chroma_client,
             collection_name=self.collection_name,
@@ -115,89 +122,63 @@ class RegulatoryDocumentIngester:
     
     def load_pdf(self, pdf_path: str) -> List[Any]:
         """
-        Load PDF document using unstructured library with hi_res strategy.
+        Load PDF document using pymupdf4llm library.
         
-        This method uses partition_pdf with hi_res strategy to accurately parse:
-        - Complex layouts
-        - Tables (converted to HTML/Markdown format)
-        - Nested regulatory structures
+        This method uses pymupdf4llm to accurately parse:
+        - Complex layouts with preserved formatting
+        - Tables in Markdown format
+        - Headings and structured content
+        - Multi-column documents
         
         Args:
             pdf_path: Path to the PDF file
             
         Returns:
-            List of Document objects with enhanced metadata for tables
+            List of Document objects with enhanced metadata
         """
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
         
-        print(f"Loading PDF with unstructured hi_res strategy: {pdf_path}")
-        print("This may take a moment for complex documents with tables...")
+        print(f"Loading PDF with pymupdf4llm: {pdf_path}")
+        print("Extracting text content from PDF...")
         
-        # Partition PDF using hi_res strategy for accurate table extraction
-        elements = partition_pdf(
-            filename=pdf_path,
-            strategy="hi_res",  # High resolution parsing for tables
-            infer_table_structure=True,  # Parse table structure
-            include_page_breaks=True,  # Preserve page context
-        )
+        # Extract markdown content from PDF using pymupdf4llm
+        # This preserves tables, headings, and document structure
+        md_text = pymupdf4llm.to_markdown(pdf_path)
         
-        print(f"Extracted {len(elements)} elements from PDF")
+        # Get page-level data for metadata
+        import pymupdf
+        pdf_doc = pymupdf.open(pdf_path)
         
-        # Convert elements to LangChain Document objects
+        # Split by page markers or create documents per page
         documents = []
-        current_page = 1
         
-        for element in elements:
-            # Get element type and content
-            element_type = element.category if hasattr(element, 'category') else 'unknown'
-            
-            # For tables, get HTML or text representation
-            if element_type == 'Table':
-                # Try to get table as HTML first (best for structured data)
-                if hasattr(element, 'metadata') and element.metadata.text_as_html:
-                    content = element.metadata.text_as_html
-                    content_format = 'html'
-                else:
-                    content = str(element)
-                    content_format = 'text'
-                
-                # Create document with table-specific metadata
-                doc = Document(
-                    page_content=content,
-                    metadata={
-                        'element_type': 'table',
-                        'content_format': content_format,
-                        'contains_structured_rules': True,
-                        'is_table': True,
-                        'page': getattr(element.metadata, 'page_number', current_page) if hasattr(element, 'metadata') else current_page,
-                    }
-                )
-                documents.append(doc)
-            else:
-                # Handle other elements (text, titles, lists, etc.)
-                content = str(element)
-                
-                # Skip empty content
-                if not content.strip():
-                    continue
-                
-                doc = Document(
-                    page_content=content,
-                    metadata={
-                        'element_type': element_type.lower(),
-                        'is_table': False,
-                        'page': getattr(element.metadata, 'page_number', current_page) if hasattr(element, 'metadata') else current_page,
-                    }
-                )
-                documents.append(doc)
-            
-            # Track page numbers
-            if hasattr(element, 'metadata') and hasattr(element.metadata, 'page_number'):
-                current_page = element.metadata.page_number
+        # Split markdown by page if page markers exist
+        # pymupdf4llm includes page markers like "-----\n\n" between pages
+        pages = md_text.split('\n\n-----\n\n')
         
-        print(f"Created {len(documents)} document chunks")
-        print(f"Tables found: {sum(1 for doc in documents if doc.metadata.get('is_table', False))}")
+        for page_num, page_content in enumerate(pages, start=1):
+            if not page_content.strip():
+                continue
+            
+            # Detect if content contains tables (markdown tables have | characters)
+            has_table = '|' in page_content and '---' in page_content
+            
+            doc = Document(
+                page_content=page_content,
+                metadata={
+                    'page': page_num,
+                    'is_table': has_table,
+                    'element_type': 'table' if has_table else 'text',
+                    'content_format': 'markdown',
+                }
+            )
+            documents.append(doc)
+        
+        pdf_doc.close()
+        
+        print(f"Extracted {len(documents)} pages from PDF")
+        print(f"Pages with tables: {sum(1 for doc in documents if doc.metadata.get('is_table', False))}")
         
         return documents
     
@@ -404,33 +385,6 @@ def ingest_permitted_development_rights(pdf_path: str = None) -> Dict[str, Any]:
     return stats
 
 
-def test_retrieval(query: str, k: int = 5):
-    """
-    Test retrieval with a sample query.
-    
-    Args:
-        query: Search query
-        k: Number of results to retrieve
-    """
-    print("\n" + "=" * 80)
-    print(f"Testing Retrieval: '{query}'")
-    print("=" * 80)
-    
-    # Initialize ingester (reuses existing collection)
-    ingester = RegulatoryDocumentIngester()
-    
-    # Search using the retriever
-    results = ingester.retriever.get_relevant_documents(query)
-    
-    print(f"\nFound {len(results)} results:\n")
-    
-    for i, doc in enumerate(results[:k], 1):
-        print(f"Result {i}:")
-        print(f"Content: {doc.page_content[:300]}...")
-        print(f"Metadata: {doc.metadata}")
-        print("-" * 80)
-
-
 if __name__ == "__main__":
     """
     Main execution: Ingest the Permitted Development Rights PDF.
@@ -444,11 +398,7 @@ if __name__ == "__main__":
         # Ingest the document
         stats = ingest_permitted_development_rights(pdf_path)
         
-        # Test retrieval with a sample query
-        print("\n")
-        test_retrieval("What are the conditions for Class A permitted development?", k=3)
-        
-        print("\n✅ Ingestion and testing completed successfully!")
+        print("\n✅ Ingestion completed successfully!")
         
     except Exception as e:
         print(f"\n❌ Error during ingestion: {str(e)}")

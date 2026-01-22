@@ -12,7 +12,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ingest import ingest_permitted_development_rights, test_retrieval
+from ingest import ingest_permitted_development_rights
 
 
 def find_pdfs_in_folder(folder_path: str) -> list:
@@ -44,10 +44,10 @@ def ingest_folder(folder_path: str):
             print(f"[{idx}/{len(pdf_files)}] Ingesting: {Path(pdf_path).name}")
             stats = ingest_permitted_development_rights(pdf_path)
             
-            total_pages += stats.get('total_pages', 0)
+            total_pages += stats.get('total_elements', 0)
             ingested_files += 1
             
-            print(f"      ✅ Success | Pages: {stats['total_pages']}")
+            print(f"      ✅ Success | Elements: {stats.get('total_elements', 'N/A')}")
         except Exception as e:
             print(f"      ❌ Failed: {str(e)}")
             failed_files.append((pdf_path, str(e)))
@@ -57,7 +57,7 @@ def ingest_folder(folder_path: str):
     print("📊 Ingestion Summary")
     print("=" * 80)
     print(f"✅ Successfully ingested: {ingested_files} file(s)")
-    print(f"📄 Total pages processed: {total_pages}")
+    print(f"📄 Total elements processed: {total_pages}")
     
     if failed_files:
         print(f"\n⚠️  Failed files ({len(failed_files)}):")
@@ -65,20 +65,6 @@ def ingest_folder(folder_path: str):
             print(f"   - {Path(file).name}: {error}")
     
     if ingested_files > 0:
-        # Test retrieval
-        print("\n📊 Testing retrieval with sample queries...\n")
-        
-        test_queries = [
-            "What are the main topics covered?",
-            "What are the key conditions and requirements?",
-            "What size or dimension limits are mentioned?"
-        ]
-        
-        for query in test_queries:
-            print(f"\n🔍 Query: {query}")
-            results = test_retrieval(query, k=2)
-            print("-" * 80)
-        
         print("\n✅ All PDFs ingested successfully!")
         print("You can now query the agent with questions about the documents!\n")
 
@@ -137,24 +123,11 @@ def main():
             print(f"📄 Ingesting: {Path(target_path).name}\n")
             stats = ingest_permitted_development_rights(target_path)
             
-            # Test retrieval
-            print("\n📊 Testing retrieval with sample queries...\n")
-            
-            test_queries = [
-                "What are the main topics covered?",
-                "What are the key conditions and requirements?",
-                "What size or dimension limits are mentioned?"
-            ]
-            
-            for query in test_queries:
-                print(f"\n🔍 Query: {query}")
-                results = test_retrieval(query, k=2)
-                print("-" * 80)
-            
             print("\n✅ Ingestion completed successfully!")
             print(f"📁 Collection: {stats['collection_name']}")
-            print(f"📄 Total Pages: {stats['total_pages']}")
+            print(f"📄 Total Elements: {stats.get('total_elements', 'N/A')}")
             print(f"📦 Parent Chunks: {stats.get('parent_chunks', 'N/A')}")
+            print(f"📦 Table Chunks: {stats.get('table_chunks', 'N/A')}")
             print("\nYou can now query the agent with questions about the regulations!\n")
         
     except FileNotFoundError as e:

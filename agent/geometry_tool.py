@@ -77,7 +77,17 @@ class AnalyzeGeometryTool(BaseTool):
         """
         geometries_by_layer = {}
         
-        for obj in drawing_data:
+        # Validate input format
+        if not isinstance(drawing_data, list):
+            print(f"Warning: drawing_data is not a list, got {type(drawing_data)}")
+            return geometries_by_layer
+        
+        for idx, obj in enumerate(drawing_data):
+            # Check if obj is a dict
+            if not isinstance(obj, dict):
+                print(f"Warning: Object at index {idx} is not a dict, got {type(obj)}. Skipping.")
+                continue
+            
             obj_type = obj.get("type")
             layer = obj.get("layer", "Unknown")
             
@@ -326,6 +336,21 @@ class AnalyzeGeometryTool(BaseTool):
             Detailed analysis as a formatted string
         """
         try:
+            # Validate input
+            if not isinstance(drawing_data, list):
+                return f"Error: drawing_data must be a list, got {type(drawing_data)}. Please ensure the drawing data is an array of geometric objects (LINE or POLYLINE)."
+            
+            if len(drawing_data) == 0:
+                return "Error: drawing_data is empty. No geometric objects to analyze."
+            
+            # Check if data looks like geometric drawing data
+            first_obj = drawing_data[0] if drawing_data else None
+            if first_obj and isinstance(first_obj, dict):
+                if "type" not in first_obj or first_obj.get("type") not in ["LINE", "POLYLINE"]:
+                    return (f"Error: The provided data does not appear to be geometric drawing data. "
+                           f"Expected objects with 'type' field set to 'LINE' or 'POLYLINE', but found: {list(first_obj.keys()) if isinstance(first_obj, dict) else type(first_obj)}. "
+                           f"Please apply proper architectural drawing JSON with POLYLINE or LINE objects.")
+            
             # Parse the drawing objects
             geometries_by_layer = self._parse_drawing_objects(drawing_data)
             

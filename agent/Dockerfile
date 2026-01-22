@@ -2,23 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for unstructured[pdf]
+# Install minimal system dependencies for runtime only
 # - netcat for health checks
-# - poppler-utils for PDF processing
-# - tesseract-ocr for OCR in hi_res strategy
-# - libmagic1 for file type detection
 RUN apt-get update && apt-get install -y \
     netcat-openbsd \
-    poppler-utils \
-    tesseract-ocr \
-    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements first for better layer caching
-COPY requirements.txt .
+# Copy runtime requirements (without heavy ingestion dependencies)
+COPY requirements.runtime.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies for runtime
+RUN pip install --no-cache-dir -r requirements.runtime.txt
 
 # Copy application code
 COPY . .

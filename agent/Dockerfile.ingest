@@ -1,0 +1,28 @@
+# Dockerfile for PDF ingestion
+# This container runs once at startup to ingest PDFs into ChromaDB
+# Using pymupdf4llm - lightweight and efficient PDF processing
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies for pymupdf4llm
+RUN apt-get update && apt-get install -y \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements for ingestion only
+COPY requirements.ingest.txt .
+
+# Install Python dependencies for ingestion
+RUN pip install --no-cache-dir -r requirements.ingest.txt
+
+# Copy only ingestion-related files
+COPY ingest.py .
+COPY ingest_pdf.py .
+COPY config.py .
+
+# Make entrypoint executable
+COPY entrypoint.ingest.sh .
+RUN chmod +x entrypoint.ingest.sh
+
+ENTRYPOINT ["./entrypoint.ingest.sh"]
