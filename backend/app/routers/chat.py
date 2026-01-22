@@ -61,16 +61,23 @@ async def send_message(request: ChatRequest):
                     "content": reg.get("content", "")
                 })
         
-        # Combine answer with reasoning steps
-        full_message = agent_response.get("answer", "")
+        # Parse the structured answer from agent (it's a JSON string)
+        import json
+        try:
+            answer_data = json.loads(agent_response.get("answer", "{}"))
+        except json.JSONDecodeError:
+            # Fallback if answer is not JSON
+            answer_data = {"answer": agent_response.get("answer", "")}
         
+        # Add reasoning steps to the structured response
         if agent_response.get("reasoning_steps"):
-            full_message += "\n\n**Analysis Steps:**\n"
-            for i, step in enumerate(agent_response["reasoning_steps"], 1):
-                full_message += f"{i}. {step}\n"
+            answer_data["reasoning_steps"] = agent_response["reasoning_steps"]
         
         if agent_response.get("geometry_analysis"):
-            full_message += f"\n**Geometry Analysis:**\n{agent_response['geometry_analysis']}"
+            answer_data["geometry_analysis"] = agent_response["geometry_analysis"]
+        
+        # Store the complete structured response as JSON string
+        full_message = json.dumps(answer_data, indent=2)
         
         # Add assistant message to session history
         session_manager.add_message(

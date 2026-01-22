@@ -51,7 +51,7 @@ class SessionManager:
             self.sessions[session_id]["messages"].append({
                 "role": role,
                 "content": content,
-                "timestamp": datetime.now()
+                "timestamp": datetime.now().isoformat()
             })
     
     def delete_session(self, session_id: str) -> bool:

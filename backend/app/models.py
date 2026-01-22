@@ -36,4 +36,4 @@ class SessionResponse(BaseModel):
 
 class SessionUpdate(BaseModel):
     session_id: str
-    ephemeral_data: Dict[str, Any]
+    ephemeral_data: Any  # Can be dict, list, or any other JSON type
