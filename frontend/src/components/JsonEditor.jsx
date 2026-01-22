@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const JsonEditor = ({ sessionId, onJsonUpdate }) => {
   const [jsonText, setJsonText] = useState('');
   const [isValid, setIsValid] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [parsedData, setParsedData] = useState(null);
+  const [uploadedFileName, setUploadedFileName] = useState('');
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     const exampleData = [
@@ -61,7 +63,53 @@ const JsonEditor = ({ sessionId, onJsonUpdate }) => {
   const handleClearJson = () => {
     setJsonText('{}');
     setParsedData({});
+    setUploadedFileName('');
     onJsonUpdate(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check if it's a JSON file
+    if (!file.name.endsWith('.json')) {
+      setIsValid(false);
+      setErrorMessage('Please upload a valid JSON file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const parsed = JSON.parse(text);
+        
+        setJsonText(JSON.stringify(parsed, null, 2));
+        setParsedData(parsed);
+        setIsValid(true);
+        setErrorMessage('');
+        setUploadedFileName(file.name);
+      } catch (error) {
+        setIsValid(false);
+        setErrorMessage(`Error parsing JSON file: ${error.message}`);
+        setUploadedFileName('');
+      }
+    };
+
+    reader.onerror = () => {
+      setIsValid(false);
+      setErrorMessage('Error reading file');
+      setUploadedFileName('');
+    };
+
+    reader.readAsText(file);
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
   };
 
   return (
@@ -74,10 +122,38 @@ const JsonEditor = ({ sessionId, onJsonUpdate }) => {
         <p className="text-sm text-gray-600 mt-1">
           Architectural drawing (ephemeral data - not stored in Vector DB)
         </p>
+        {uploadedFileName && (
+          <p className="text-xs text-blue-600 mt-2 font-medium flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+            </svg>
+            Loaded: {uploadedFileName}
+          </p>
+        )}
       </div>
 
       {/* Editor */}
       <div className="flex-1 overflow-hidden p-4">
+        {/* Upload Button */}
+        <div className="mb-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+          <button
+            onClick={handleUploadClick}
+            className="w-full px-4 py-2 bg-blue-50 text-blue-700 border-2 border-dashed border-blue-300 rounded-lg hover:bg-blue-100 hover:border-blue-400 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+            </svg>
+            Upload JSON File
+          </button>
+        </div>
+        
         <textarea
           value={jsonText}
           onChange={handleJsonChange}
@@ -86,7 +162,7 @@ const JsonEditor = ({ sessionId, onJsonUpdate }) => {
               ? 'border-gray-300 focus:ring-primary'
               : 'border-red-500 focus:ring-red-500'
           }`}
-          placeholder="Enter your architectural drawing JSON here..."
+          placeholder="Upload a JSON file or paste your architectural drawing JSON here..."
           spellCheck="false"
         />
       </div>
