@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { sessionAPI } from './api/api';
 import ChatInterface from './components/ChatInterface.jsx';
 import JsonEditor from './components/JsonEditor.jsx';
@@ -16,10 +16,14 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const queryClientInstance = useQueryClient();
+  const [currentSession, setCurrentSession] = useState(null);
+  const [ephemeralData, setEphemeralData] = useState(null);
 
   const createSessionMutation = useMutation({
     mutationFn: () => sessionAPI.createSession(),
     onSuccess: (session) => {
+      setCurrentSession(session);
+      setEphemeralData(null);
       queryClientInstance.setQueryData(['currentSession'], session);
       queryClientInstance.setQueryData(['ephemeralData'], null);
     },
@@ -29,12 +33,10 @@ function AppContent() {
     mutationFn: ({ sessionId, jsonData }) =>
       sessionAPI.updateEphemeralData(sessionId, jsonData),
     onSuccess: (_, variables) => {
+      setEphemeralData(variables.jsonData);
       queryClientInstance.setQueryData(['ephemeralData'], variables.jsonData);
     },
   });
-
-  const currentSession = queryClientInstance.getQueryData(['currentSession']);
-  const ephemeralData = queryClientInstance.getQueryData(['ephemeralData']);
 
   useEffect(() => {
     createSessionMutation.mutate();
@@ -94,7 +96,7 @@ function AppContent() {
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-12rem)]">
           {/* Chat Interface */}
-          <div className="h-full">
+          <div className="h-full overflow-hidden">
             <ChatInterface
               sessionId={currentSession?.session_id}
               ephemeralData={ephemeralData}

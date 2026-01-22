@@ -7,22 +7,31 @@ const JsonEditor = ({ sessionId, onJsonUpdate }) => {
   const [parsedData, setParsedData] = useState(null);
 
   useEffect(() => {
-    const exampleData = {
-      building_name: 'Office Building A',
-      floors: 5,
-      total_area: 15000,
-      occupancy_type: 'Business',
-      features: {
-        fire_exits: 4,
-        sprinkler_system: true,
-        emergency_lighting: true,
+    const exampleData = [
+      {
+        type: 'POLYLINE',
+        layer: 'Plot Boundary',
+        points: [
+          [-13160.59, 19584.96],
+          [-3160.59, 19584.96],
+          [-3160.59, 44584.96],
+          [-13160.59, 44584.96],
+        ],
+        closed: true,
       },
-      zones: [
-        { id: 'zone_1', type: 'office', area: 8000 },
-        { id: 'zone_2', type: 'common', area: 3000 },
-        { id: 'zone_3', type: 'mechanical', area: 4000 },
-      ],
-    };
+      {
+        type: 'POLYLINE',
+        layer: 'Walls',
+        points: [
+          [-9660.59, 29584.96],
+          [-10660.59, 29584.96],
+          [-10660.59, 22084.96],
+          [-8560.59, 22084.96],
+          [-8560.59, 29584.96],
+        ],
+        closed: true,
+      },
+    ];
     setJsonText(JSON.stringify(exampleData, null, 2));
     setParsedData(exampleData);
   }, []);
